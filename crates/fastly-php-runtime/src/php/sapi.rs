@@ -200,7 +200,8 @@ unsafe extern "C" fn fastly_ce_sapi_ub_write(
 ) -> usize {
     #[cfg(debug_assertions)]
     println!("Fastly C@E ub_write (len {}): {:p}", str_length, str);
-    let ub_write_bytes = std::ffi::CStr::from_ptr(str).to_str().unwrap().as_bytes();
+
+    let ub_write_bytes = std::slice::from_raw_parts(str as *const u8, str_length);
 
     let mut response = response();
 
