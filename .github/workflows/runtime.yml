@@ -37,7 +37,7 @@ jobs:
       run: make all use_sccache=true WASI_SDK_PATH=$WASI_SDK_PATH numjobs=3
 
     - name: Upload runtime
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: runtime
         path: |
