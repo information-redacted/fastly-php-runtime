@@ -1,7 +1,13 @@
-use php_sys::{
-    _sapi_module_struct, _zend_module_entry, php_module_startup, php_register_variable,
-    sapi_header_struct, sapi_startup,
-};
+use std::collections::HashMap;
+use php_sys::{_sapi_module_struct, _zend_expected_type_Z_EXPECTED_FUNC_OR_NULL, _zend_module_entry, core_globals, php_default_treat_data, php_module_startup, php_register_variable, sapi_header_struct, sapi_startup, uint, zval};
+
+static TRACK_VARS_POST: usize = 0;
+static TRACK_VARS_GET: usize = 1;
+static TRACK_VARS_COOKIE: usize = 2;
+static TRACK_VARS_SERVER: usize = 3;
+static TRACK_VARS_ENV: usize = 4;
+static TRACK_VARS_FILES: usize = 5;
+static TRACK_VARS_REQUEST: usize = 6;
 
 use crate::{
     fastly_ce::manager::{request, response},
@@ -39,13 +45,13 @@ pub fn init_fastly_ce_sapi() {
         send_header: Some(fastly_ce_sapi_send_header),
         read_post: Some(fastly_ce_sapi_read_post),
         read_cookies: None,
+        treat_data: None,
         register_server_variables: Some(fastly_ce_sapi_register_server_vars),
         log_message: None,
         get_request_time: None,
         terminate_process: None,
         php_ini_path_override: std::ptr::null_mut(),
         default_post_reader: None,
-        treat_data: None,
         executable_location: std::ptr::null_mut(),
         php_ini_ignore: 0,
         php_ini_ignore_cwd: 0,
@@ -96,6 +102,22 @@ unsafe extern "C" fn fastly_ce_sapi_register_server_vars(
         register_php_variable("REMOTE_ADDR", remote_addr.as_str(), track_vars_array);
     }
 
+    if let Some(query_string) = request.query_string() {
+        let qs_map:HashMap<String,String> = query_string.split('&')
+            .filter_map(|pair| {
+                let mut split = pair.splitn(2, '=');
+                match (split.next(), split.next()) {
+                    (Some(k), Some(v)) => Some((k.to_string(), v.to_string())),
+                    (Some(k), None) => Some((k.to_string(), "".to_string())),
+                    _ => None,
+                }
+            })
+            .collect();
+        for (qsN, qsV) in qs_map {
+            register_php_variable_zv(qsN.as_str(), qsV.as_str(), &mut core_globals.http_globals[TRACK_VARS_GET]);
+        }
+    }
+
     // todo: this breaks PHP
     // let server_software = format!(
     //     "Fastly Compute@Edge/{}",
@@ -134,6 +156,20 @@ pub fn register_php_variable(
     variable: &str,
     value: &str,
     track_vars_array: *mut php_sys::_zval_struct,
+) {
+    let variable = std::ffi::CString::new(variable).unwrap();
+    let value = std::ffi::CString::new(value).unwrap();
+
+    let var = variable.as_ptr() as *const ::std::os::raw::c_char;
+    let val = value.as_ptr() as *const ::std::os::raw::c_char;
+
+    unsafe { php_register_variable(var, val, track_vars_array) };
+}
+
+pub fn register_php_variable_zv(
+    variable: &str,
+    value: &str,
+    track_vars_array: *mut zval,
 ) {
     let variable = std::ffi::CString::new(variable).unwrap();
     let value = std::ffi::CString::new(value).unwrap();
